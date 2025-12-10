@@ -1,0 +1,1259 @@
+---
+title: "Aplicacao - Marketing"
+author: "Arthur Marchito"
+date: "2025-08-07"
+output:
+  html_document:
+    toc: true
+    toc_depth: '3'
+    df_print: paged
+  word_document:
+    toc: true
+    toc_depth: '3'
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+    toc_depth: 3
+    highlight: zenburn
+line-height: 1.5em
+fontsize: 12pt
+font-family: times new roman
+---
+
+
+Objetivo da Análise
+
+O objetivo deste estudo é realizar uma segmentação dos clientes membros de um shopping center, utilizando variáveis como sexo, idade, renda anual e pontuação de gastos. Por meio de técnicas de agrupamento, busca-se identificar grupos de clientes com comportamentos de consumo semelhantes, permitindo à equipe de marketing direcionar estratégias específicas para cada segmento. A segmentação pode auxiliar na identificação de perfis com maior propensão a gastos, clientes potenciais para campanhas promocionais ou aqueles que demandam abordagens diferenciadas para fidelização.
+
+O conjunto de dados utilizado nesta análise foi obtido a partir da plataforma Kaggle, e oferece uma base adequada para a aplicação de técnicas de análise estatísticas.
+
+## Descrição das Variáveis
+
+O conjunto de dados utilizado contém informações sobre o perfil de clientes de um shopping center. As variáveis disponíveis são descritas a seguir:
+
+- `CustomerID`: Identificador único de cada cliente (variável do tipo inteira).  
+- `Gender`: Gênero do cliente (`Male` ou `Female`) – variável categórica nominal.  
+- `Age`: Idade do cliente, em anos – variável numérica contínua.  
+- `Annual Income (k$)`: Renda anual do cliente, em milhares de dólares – variável numérica contínua.  
+- `Spending Score (1-100)`: Pontuação de gasto atribuída com base no comportamento e padrão de consumo do cliente – variável numérica contínua, variando de 1 a 100.
+
+As análises de agrupamento serão conduzidas com base nas variáveis de renda anual e score de gasto, visto que esse é o objetivo para a nossa segmentação para o nosso shopping traçar estratégias. As demais variaveis poderão ser exploradas posteriormente para fins de interpretação dos clusters.
+
+# carregamento de pacotes
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+# -----------------------------------------------
+# Carregamento de pacotes utilizados no TCC
+# -----------------------------------------------
+
+library(tidyverse)
+library(corrplot)
+library(gridExtra)
+library(GGally)
+library(knitr)
+library(kableExtra)
+library(tidyr)
+library(factoextra)
+library(cluster)
+library(mclust)
+library(patchwork)
+library(ggplot2)
+library(ggdendro)
+library(ellipse)
+library(cluster)       
+library(clusterCrit)   
+library(clValid)       
+library(dplyr)
+library(tidyr)
+library(kableExtra)
+
+```
+
+# funções auxiliares
+
+```{r}
+
+# ---------------------------------------------------------
+# Função para calcular estatísticas descritivas personalizadas
+# ---------------------------------------------------------
+
+estatisticas <- function(x) {
+  c(
+    Minimo       = min(x),
+    Q1           = quantile(x, 0.25),
+    Mediana      = median(x),
+    Media        = mean(x),
+    Q3           = quantile(x, 0.75),
+    Maximo       = max(x)
+  )
+}
+
+```
+
+
+## Análise exploratória e tratamento dos dados
+
+```{r}
+# ---------------------------------------------------------
+# Análise exploratória e tratamento dos dados
+# Conjunto: Mall Customers
+# ---------------------------------------------------------
+
+
+# ---------------------------------------------------------
+# 1. Leitura e renomeação das variáveis
+# ---------------------------------------------------------
+
+dados <- read.delim("Mall_Customers.csv", sep = ",", header = TRUE)
+
+colnames(dados) <- c("ID", "Genero", "Idade", "Renda_anual", "Escore_gasto")
+
+# Visualização inicial
+head(dados)
+
+# ---------------------------------------------------------
+# 2. Estrutura e verificação de valores ausentes
+# ---------------------------------------------------------
+
+str(dados)
+sum(is.na(dados))
+
+# ---------------------------------------------------------
+# 3. Estatísticas descritivas das variáveis numéricas
+# ---------------------------------------------------------
+
+dados_num <- dados[, 3:5]
+
+summary(dados_num)
+
+tabela_estatisticas <- dados_num |>
+  apply(2, estatisticas) |>
+  t() |>
+  as.data.frame() |>
+  round(2)
+
+print(tabela_estatisticas)
+
+# ---------------------------------------------------------
+# 4. Estatísticas das variáveis padronizadas
+# ---------------------------------------------------------
+
+dados_num_p <- scale(dados_num) |> as.data.frame()
+
+tabela_estatisticas_p <- dados_num_p |>
+  apply(2, estatisticas) |>
+  t() |>
+  as.data.frame() |>
+  round(2)
+
+print(tabela_estatisticas_p)
+
+```
+
+
+
+### Boxplot das variaveis
+
+```{r}
+
+# ---------------------------------------------------------
+# 1. Boxplot das variáveis originais
+# ---------------------------------------------------------
+
+# Transformar os dados no formato longo
+dados_long <- dados_num %>%
+  gather(Attributes, values, c(1:3))
+
+# Criar o gráfico
+p <- ggplot(dados_long, aes(x = Attributes, y = values)) +
+  geom_boxplot(fill = "#D55E00", color = "black", outlier.color = "black", outlier.size = 1.5) +
+  scale_y_continuous(limits = c(0, 150)) +  # ajusta escala do Y
+  labs(
+#    title = "Distribuição das variáveis numéricas",
+    x = NULL,
+    y = "Valores"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle = element_text(size = 11, hjust = 0.5),
+    axis.text.x = element_text(face = "bold", size = 12),
+    axis.text.y = element_text(face = "bold"),
+    panel.grid.major.x = element_blank()
+  )
+
+# Salvar 
+ggsave("boxplot_shopping_r.png", p, width = 9, height = 6, dpi = 300)
+
+
+# ---------------------------------------------------------
+# 2. Boxplot das variáveis padronizadas
+# ---------------------------------------------------------
+
+# Transformar os dados no formato longo
+dados_long_p <- dados_num_p %>%
+  gather(Attributes, values, c(1:3))
+
+# Criar o gráfico
+p_padronizado <- ggplot(dados_long_p, aes(x = Attributes, y = values)) +
+  geom_boxplot(fill = "#D55E00", color = "black", outlier.color = "black", outlier.size = 1.5) +
+  scale_y_continuous(limits = c(-3, 3)) +  # ajusta escala do Y
+  labs(
+    #title = "Distribuição das variáveis numéricas",
+    x = NULL,
+    y = "Valores"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle = element_text(size = 11, hjust = 0.5),
+    axis.text.x = element_text(face = "bold", size = 12),
+    axis.text.y = element_text(face = "bold"),
+    panel.grid.major.x = element_blank()
+
+)
+
+
+# Salvar 
+ggsave("boxplot_shopping_p.png", p_padronizado, width = 9, height = 6, dpi = 300)
+
+```
+
+
+### Histogramas
+
+
+
+```{r}
+# ---------------------------------------------------------
+# 1. histograma das variáveis originais
+# ---------------------------------------------------------
+
+##Variaveis reais
+dados_histogramas_r_mkt <- dados_num %>%
+  gather(Attributes, value, 1:3) %>%
+  ggplot(aes(x = value)) +
+  geom_histogram(fill = "#D55E00", color = "black", bins = 30) +
+  facet_wrap(~Attributes, scales = "free_x") +
+  labs(
+##   title = "Distribuição dos Componentes Químicos dos Vinhos",
+##    subtitle = "Histogramas das variáveis padronizadas",
+##    x = "Valor Padronizado",
+##    y = "Frequência"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle = element_text(size = 11, hjust = 0.5),
+    strip.text = element_text(face = "bold", size = 10)
+  )
+
+
+# Salvando os histogramas das variáveis padronizadas
+ggsave(
+  filename = "histogramas_padronizadas_mkt.png",
+  plot = dados_histogramas_r_mkt,
+  width = 10,
+  height = 8,
+  dpi = 300
+)
+
+# ---------------------------------------------------------
+# 2. histograma das variáveis padronizadas
+# ---------------------------------------------------------
+
+## Variaveis padronizadas
+dados_histogramas_p <- dados_num_p %>%
+  gather(Attributes, value, 1:3) %>%
+  ggplot(aes(x = value)) +
+  geom_histogram(fill = "#D55E00", color = "black", bins = 30) +
+  facet_wrap(~Attributes, scales = "free_x") +
+  labs(
+##   title = "Distribuição dos Componentes Químicos dos Vinhos",
+##    subtitle = "Histogramas das variáveis padronizadas",
+##    x = "Valor Padronizado",
+##    y = "Frequência"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle = element_text(size = 11, hjust = 0.5),
+    strip.text = element_text(face = "bold", size = 10)
+  )
+
+
+
+
+# Salvando os histogramas das variáveis reais
+ggsave(
+  filename = "histogramas_reais_mkt.png",
+  plot = dados_histogramas_r_mkt,
+  width = 10,
+  height = 8,
+  dpi = 300
+)
+
+
+
+
+```
+
+# Gráficos exploratórios
+
+
+```{r}
+# ---------------------------------------------------------
+# Gráficos exploratórios — TCC
+# ---------------------------------------------------------
+
+# ---------------------------------------------------------
+# 1. Distribuição por gênero
+# ---------------------------------------------------------
+
+dados_genero <- dados %>%
+  group_by(Genero) %>%
+  summarise(Frequencia = n()) %>%
+  mutate(Porcentagem = round(Frequencia / sum(Frequencia) * 100, 1))
+
+p_genero <- ggplot(dados_genero, aes(x = Genero, y = Frequencia, fill = Genero)) +
+  geom_bar(stat = "identity", show.legend = FALSE) +
+  geom_text(aes(label = paste0(Porcentagem, "%")),
+            vjust = -0.5, size = 4) +
+  scale_fill_manual(values = c("#3399FF", "#FF6666")) +
+  labs(
+    title = "Distribuição por Gênero",
+    x = "Gênero",
+    y = "Frequência"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+    axis.text = element_text(face = "bold"),
+    panel.grid.major.x = element_blank()
+  )
+
+print(p_genero)
+
+ggsave("figs/grafico_genero.png",
+       p_genero, width = 8, height = 6, dpi = 300)
+
+
+
+# ---------------------------------------------------------
+# 2. Dispersão entre renda anual e score de gasto
+# ---------------------------------------------------------
+
+p1 <- ggplot(dados_num, aes(x = Renda_anual, y = Escore_gasto)) +
+  geom_point(color = "#D55E00", alpha = 0.7, size = 2) +  # Laranja queimado
+  labs(
+    x = "Renda Anual (mil unidades monetárias)",
+    y = "Escore de Gasto"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text = element_text(face = "bold"),
+    plot.title = element_text(face = "bold")
+  )
+print(p1)
+
+ggsave("grafico_dispersao_renda_escore1.png",
+       p1, width = 8, height = 6, dpi = 300)
+
+
+
+# ---------------------------------------------------------
+# 3. Dispersão colorida por gênero
+# ---------------------------------------------------------
+
+p2 <- ggplot(dados_num, aes(x = Renda_anual, y = Escore_gasto,
+                            color = dados$Genero)) +
+  geom_point(alpha = 0.7, size = 2) +
+  scale_color_manual(values = c(
+    "Male"   = "#D55E00",  # Laranja queimado
+    "Female" = "#009E73"   # Verde oliva forte
+  )) +
+  labs(
+    x = "Renda Anual (mil unidades monetárias)",
+    y = "Escore de Gasto",
+    color = "Gênero"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text = element_text(face = "bold")
+  )
+
+print(p2)
+
+ggsave("grafico_dispersao_renda_escore2.png",
+       p2, width = 8, height = 6, dpi = 300)
+
+
+
+# ---------------------------------------------------------
+# 4. Dispersão colorida por idade (escala contínua)
+# ---------------------------------------------------------
+
+p3 <- ggplot(dados_num, aes(x = Renda_anual, 
+                            y = Escore_gasto, 
+                            color = Idade)) +
+  geom_point(size = 3, alpha = 0.7) +
+  scale_color_viridis_c(option = "A") +  # MAGMA (sem azul)
+  labs(
+    x = "Renda Anual (mil unidades monetárias)",
+    y = "Escore de Gasto",
+    color = "Idade"
+  ) +
+  theme_minimal()
+
+print(p3)
+
+ggsave("grafico_dispersao_renda_escore3.png",
+       p3, width = 8, height = 6, dpi = 300)
+
+```
+
+
+
+
+
+Apesar de o conjunto de dados conter uma variável categórica (`Gender`), optou-se por utilizar apenas as variáveis numéricas para a aplicação dos métodos de partição, como o K-means, que são baseados na distância euclidiana e, portanto, inadequados para variáveis qualitativas. Essa abordagem é válida desde que se reconheça a limitação na consideração das categorias e se utilize essas variáveis posteriormente para interpretação dos agrupamentos.
+
+
+# Gráfico de correlação
+
+```{r}
+
+
+cor_mat <- round(cor(dados_num), 2)
+
+df_cor <- as.data.frame(as.table(cor_mat))
+
+grafico_cor_mkt <- ggplot(df_cor, aes(Var1, Var2, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Freq), size = 4) +
+  scale_fill_gradient2(low = "#56B4E9", mid = "white", high = "#D55E00", midpoint = 0) +
+  labs(title = " ",
+       x = "", y = "") +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"),
+        axis.text.y = element_text(face = "bold"))
+
+
+ggsave("grafico_cor_mkt.png",
+       grafico_cor_mkt, width = 8, height = 6, dpi = 300)
+```
+
+
+
+
+############################# Escolha de Número de Grupos #########################################
+
+##### K-means
+
+```{r}
+# ---------------------------------------------------------
+# Escolha do número de grupos — K-means
+# ---------------------------------------------------------
+
+library(factoextra)
+
+# ---------------------------------------------------------
+# 1. Seleção das variáveis numéricas
+# ---------------------------------------------------------
+
+# Padronização (z-score) das variaveis renda anual e escore
+
+dados_pad <- as.data.frame(dados_num_p[,2:3])
+
+# ---------------------------------------------------------
+# 2. Método do Cotovelo
+# ---------------------------------------------------------
+
+
+grafico_wss <- fviz_nbclust(
+  dados_pad,
+  kmeans,
+  method = "wss",
+  linecolor = "#D55E00",
+  print.summary = FALSE   # opcional: remove texto extra do topo
+) +
+  geom_vline(
+    xintercept = 6,
+    linetype = "dashed",
+    color = "#D55E00",
+    linewidth = 0.8
+  ) +
+  labs(
+    title = NULL,   # remove o título padrão!
+    x = "Número de grupos",
+    y = "Soma total dos quadrados intra-clusters"
+  ) +
+  theme_minimal(base_size = 12)
+
+
+
+print(grafico_wss)
+
+ggsave("grafico_kmeans_cotovelo.png",
+       plot = grafico_wss, width = 7, height = 5, dpi = 300)
+
+
+
+# ---------------------------------------------------------
+# 3. Método da Silhueta
+# ---------------------------------------------------------
+
+grafico_silhueta <- fviz_nbclust(
+  dados_pad,
+  kmeans,
+  method = "silhouette",
+  linecolor = "#D55E00",
+  print.summary = FALSE       # remove a linha e o texto automáticos
+) +
+  geom_vline(
+    xintercept = 6,
+    linetype = "dashed",
+    color = "#D55E00",
+    linewidth = 0.8
+  ) +
+  labs(
+    title = NULL,
+    x = "Número de grupos",
+    y = "Silhueta média"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  )
+
+
+
+
+print(grafico_silhueta)
+
+ggsave("grafico_kmeans_silhueta.png",
+       plot = grafico_silhueta, width = 7, height = 5, dpi = 300)
+
+
+
+```
+
+
+##### Misturas
+
+No gráfico do BIC (Critério de Informação Bayesiano), podemos observar o comportamento do critério para diferentes modelos de mistura de gaussianas e quantidades de clusters (componentes). O BIC é usado para determinar tanto o número de componentes quanto o modelo mais adequado para os dados.
+
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+# ---------------------------------------------------------
+# Critério BIC para Misturas Gaussianas (mclust)
+# ---------------------------------------------------------
+
+# ---------------------------------------------------------
+# 1. Ajuste do modelo
+# ---------------------------------------------------------
+
+Modelo_mistura_mkt <- Mclust(dados_pad)
+# ---------------------------------------------------------
+# 2. Transformar BIC do mclust em data frame
+# ---------------------------------------------------------
+
+bic <- Modelo_mistura_mkt$BIC
+
+df_bic <- as.data.frame(as.table(bic)) |>
+  rename(
+    G = Var1,
+    modelo = Var2,
+    BIC = Freq
+  ) |> 
+  mutate(
+    G = as.numeric(as.character(G))
+  ) |> 
+  drop_na()
+
+# ---------------------------------------------------------
+# 3. Paleta Okabe–Ito (para daltônicos)
+# ---------------------------------------------------------
+
+cores_14 <- c(
+  "#000000", # black
+  "#E69F00", # orange
+  "#56B4E9", # light blue
+  "#009E73", # bluish green
+  "#F0E442", # yellow
+  "#0072B2", # blue
+  "#D55E00", # vermillion
+  "#CC79A7", # reddish purple
+  "#882255", # wine (Tol)
+  "#44AA99", # bluish green 2 (Tol)
+  "#117733", # forest green (Tol)
+  "#332288", # indigo (Tol)
+  "#AA4499", # pink (Tol)
+  "#DDCC77"  # sand (Tol)
+)
+
+# ---------------------------------------------------------
+# 4. Gráfico final em ggplot2
+# ---------------------------------------------------------
+
+grafico_bic_mkt <- ggplot(df_bic, aes(x = G, y = BIC, color = modelo)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  scale_color_manual(values = cores_14) +
+  scale_x_continuous(breaks = 1:10) + 
+  labs(
+    x = "Número de grupos",
+    y = "BIC",
+    color = "Modelo"
+  ) +
+  theme_minimal(base_size = 12)
+
+
+
+ggsave("grafico_bic_mkt.png",
+       plot = grafico_bic_mkt, width = 7, height = 5, dpi = 300)
+
+# ---------------------------------------------------------
+# 3. Sumário do BIC
+# ---------------------------------------------------------
+
+summary(Modelo_mistura_mkt$BIC)
+
+
+
+```
+
+
+
+### Fusão
+
+
+```{r}
+###############################################
+# Análise do Nível de Fusão - Método Ward
+###############################################
+
+# Distância e agrupamento -------------------------------------------------
+distancia <- dist(dados_pad, method = "euclidean")
+hc_ward   <- hclust(distancia, method = "ward.D2")
+
+# Tabela com etapas e alturas de fusão -----------------------------------
+df_fusao <- data.frame(
+  Etapa = seq_along(hc_ward$height),
+  Distancia = hc_ward$height
+)
+
+# Saltos entre fusões
+df_fusao$Salto <- c(NA, diff(df_fusao$Distancia))
+
+# Maior salto (opcional para relatório)
+maior_salto <- df_fusao[which.max(df_fusao$Salto), ]
+print(maior_salto)
+
+
+
+# -------------------------------------------------------------------------
+# 1) Gráfico destacando o ponto onde K = 5
+# -------------------------------------------------------------------------
+
+n_obs <- length(hc_ward$order)
+etapa_k5 <- n_obs - 5
+
+ponto_k5 <- df_fusao[df_fusao$Etapa == etapa_k5, ]
+
+grafico_fusao_mkt <- ggplot(df_fusao, aes(x = Etapa, y = Distancia)) +
+  geom_line(color = "black", linewidth = 1) +
+  geom_point(color = "#D55E00", size = 2) +
+  geom_point(
+    data = ponto_k5,
+    aes(x = Etapa, y = Distancia),
+    color = "#009E73", size = 3
+  ) +
+  geom_text(
+    data = ponto_k5,
+    aes(label = "K = 5"),
+    vjust = 1.5, color = "black"
+  ) +
+  labs(
+    x = "Etapas de Agrupamento",
+    y = "Distância (Fusão)"
+  ) +
+  theme_minimal(base_size = 14)
+
+ggsave("grafico_fusao_mkt.png",
+       plot = grafico_fusao_mkt,
+       width = 7, height = 5, dpi = 300)
+```
+
+O maior salto significa que de N=5 grupos para N=4 houve uma fusão muito brusca (perda grande de similaridade).
+
+Isso indica que a estrutura natural já estava em 4 ou mais grupos, e ao forçar menos grupos você perde informação.
+
+Portanto, a melhor escolha é o valor de N imediatamente antes do salto, ou seja, 
+N=5.
+
+Em termos de interpretação:
+
+N=5 → ainda mantém grupos relativamente homogêneos.
+
+A fusão seguinte (para 4) já junta clusters muito diferentes, o que não é desejável.
+
+## Nivel de similaridade
+
+```{r}
+
+#########################################################
+# Nível de Similaridade - Método Ward
+#########################################################
+
+
+# Tabela com etapas e distâncias de fusão ----------------
+df_similaridade <- data.frame(
+  Etapa     = seq_along(hc_ward$height),
+  Distancia = hc_ward$height
+)
+
+# Similaridade padronizada segundo Giolo (2017):
+# S_il = 1 - (d_il / max(d_jk))
+max_dist <- max(df_similaridade$Distancia)
+
+df_similaridade$Similaridade <- 1 - (df_similaridade$Distancia / max_dist)
+
+# Variação entre etapas (queda na similaridade)
+df_similaridade$Delta_Sim <- c(NA, diff(df_similaridade$Similaridade))
+
+# Etapa com maior queda de similaridade (opcional para relatório)
+maior_queda <- df_similaridade[which.min(df_similaridade$Delta_Sim), ]
+print(maior_queda)
+
+# --------------------------------------------------------
+# Ponto correspondente a K = 5 clusters
+# Fórmula: Etapa = n_obs - K
+# --------------------------------------------------------
+n_obs    <- length(hc_ward$order)
+etapa_k5 <- n_obs - 5
+
+ponto_k5 <- df_similaridade[df_similaridade$Etapa == etapa_k5, ]
+
+# --------------------------------------------------------
+# Gráfico do nível de similaridade
+# --------------------------------------------------------
+
+grafico_similaridade_mkt <- ggplot(df_similaridade, aes(x = Etapa, y = Similaridade)) +
+  geom_line(color = "black", linewidth = 1) +
+  geom_point(color = "#D55E00", size = 2) +
+
+  # marcação do ponto K = 5
+  geom_point(
+    data = ponto_k5,
+    aes(x = Etapa, y = Similaridade),
+    color = "#009E73", size = 3
+  ) +
+  geom_text(
+    data = ponto_k5,
+    aes(label = "K = 5"),
+    vjust = 1.5, color = "black"
+  )  +
+
+  labs(
+    x = "Etapas de Agrupamento",
+    y = "Nível de Similaridade Padronizado"
+  ) +
+  theme_minimal(base_size = 14)
+
+ggsave(
+  filename = "grafico_similaridade_mkt.png",
+  plot = grafico_similaridade_mkt,
+  width = 7, height = 5, dpi = 300
+)
+```
+
+
+## Salvando lado a lado
+
+```{r}
+
+
+grafico_fusao_similaridade_mkt <- grafico_fusao_mkt + grafico_similaridade_mkt +
+  plot_layout(ncol = 2) +
+  plot_annotation(
+    tag_levels = "a",   # <-- adiciona (a), (b), (c) automaticamente
+    tag_prefix = "(",   # deixa como (a)
+    tag_suffix = ")"    # fecha )
+  )
+
+ggsave("grafico_mkt_fusao_similaridade.png",
+       plot = grafico_fusao_similaridade_mkt,
+       width = 12, height = 5, dpi = 300)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+################################# Métodos de Agrupamento #########################################
+
+
+### Método Hierárquico de Ward
+
+
+
+```{R}
+########################################
+### DENDROGRAMA COM GGDENDRO (Ward)
+########################################
+
+# Distância euclidiana
+distancia <- dist(dados_pad, method = "euclidean")
+
+# Agrupamento
+hc <- hclust(distancia, method = "ward.D2")
+
+# Conversão para ggdendro
+gg_hc <- as.dendrogram(hc)
+gg_dendo <- dendro_data(gg_hc, type = "rectangle")
+
+# Altura de corte (ajustável)
+altura_corte <- 5
+
+# Gráfico
+grafico_dendograma_ward <- ggplot(segment(gg_dendo)) +
+  geom_segment(
+    aes(x = x, y = y, xend = xend, yend = yend),
+    color = "#D55E00"
+  ) +
+  geom_hline(
+    yintercept = altura_corte,
+    linetype = "dashed",
+    color = "black",
+    linewidth = 1
+  ) +
+  labs(
+    x = "Observações",
+    y = "Distância de fusão"
+  ) +
+  theme_minimal(base_size = 13)
+
+ggsave(
+  "grafico_dendograma_ward.png",
+  plot = grafico_dendograma_ward,
+  width = 10, height = 6, dpi = 300, bg = "white"
+)
+
+
+
+```
+
+
+
+### Kmeans
+
+
+```{r}
+set.seed(123)
+
+### K-means
+
+# Rodando o k-means com K = 6
+kmeans_result <- kmeans(dados_pad, centers = 6, nstart = 25)
+
+# Adicionando o cluster ao dataframe original
+dados$Cluster <- factor(kmeans_result$cluster)
+
+# Gráfico com elipses euclidianas
+grafico_mark_kmeans <- fviz_cluster(
+  object = kmeans_result,
+  data = dados_pad,
+  geom = "point",
+  ellipse.type = "euclid",
+  ellipse.linewidth = 1.2,
+  ellipse.alpha = 0.2,
+  repel = TRUE,
+  labelsize = 0,
+  ggtheme = theme_minimal(base_size = 14)
+) +
+  labs(
+    title = NULL,
+    subtitle = NULL,
+    x = "Renda anual",
+    y = "Escore de gasto"
+  )
+
+ggsave("grafico_mark_kmeans.png",
+       plot = grafico_mark_kmeans,
+       width = 7, height = 5, dpi = 300)
+
+
+```
+
+
+
+
+
+
+######################## MISTURAS #######################################
+
+
+
+    
+```{r}
+
+
+########################################
+### MISTURAS GAUSSIANAS
+########################################
+
+
+# Ajuste do melhor modelo (EII, 7 componentes)
+melhor_modelo <- Mclust(dados_pad, G = 7, modelNames = "EII")
+dados$Cluster_Mclust <- factor(melhor_modelo$classification)
+
+## ---- Preparação para plotagem ----
+if (ncol(dados_pad) > 2) {
+  
+  # Redução via PCA
+  pca <- prcomp(dados_pad, scale. = TRUE)
+  
+  df_plot <- data.frame(
+    PC1 = pca$x[, 1],
+    PC2 = pca$x[, 2],
+    cluster = as.factor(melhor_modelo$classification)
+  )
+  
+  # Projeta as médias no espaço do PCA
+  means_proj <- predict(pca, t(melhor_modelo$parameters$mean))
+  
+  # Elipses
+  sigmas <- melhor_modelo$parameters$variance$sigmasq
+  ellipses <- lapply(1:melhor_modelo$G, function(k) {
+    Sigma <- diag(rep(ifelse(length(sigmas) == 1, sigmas, sigmas[k]), 2))
+    e <- as.data.frame(ellipse(Sigma, centre = means_proj[k, 1:2], level = 0.95))
+    e$cluster <- as.factor(k)
+    e
+  })
+  ellipses_df <- do.call(rbind, ellipses)
+  
+  # Gráfico final
+  grafico_mark_misturas <- ggplot(df_plot, aes(x = PC1, y = PC2, color = cluster, fill = cluster, shape = cluster)) +
+    geom_polygon(data = ellipses_df, aes(x = x, y = y, fill = cluster), alpha = 0.2, color = NA) +
+    geom_point(alpha = 0.9, size = 3, stroke = 1, color = "black") +
+    scale_shape_manual(values = c(21, 24, 22, 3, 8, 23, 25)) +
+    scale_fill_brewer(palette = "Set2") +
+    scale_color_brewer(palette = "Set2") +
+    labs(
+      title = "Mistura Gaussiana (EII, 7 componentes) - PCA",
+      x = "Componente Principal 1",
+      y = "Componente Principal 2",
+      color = "Cluster", fill = "Cluster", shape = "Cluster"
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(
+      plot.title = element_text(face = "bold", hjust = 0.5),
+      axis.title.x = element_text(size = 12),
+      axis.title.y = element_text(size = 12),
+      legend.title = element_text(face = "bold")
+    )
+  
+} else {
+  
+  # Caso apenas duas variáveis
+  df_plot <- data.frame(
+    Renda_anual = dados_pad[, 1],
+    Escore_gasto = dados_pad[, 2],
+    cluster = as.factor(melhor_modelo$classification)
+  )
+  
+  means_proj <- t(melhor_modelo$parameters$mean)
+  sigmas <- melhor_modelo$parameters$variance$sigmasq
+  
+  ellipses <- lapply(1:melhor_modelo$G, function(k) {
+    Sigma <- diag(rep(ifelse(length(sigmas) == 1, sigmas, sigmas[k]), 2))
+    e <- as.data.frame(ellipse(Sigma, centre = means_proj[k, 1:2], level = 0.95))
+    e$cluster <- as.factor(k)
+    e
+  })
+  ellipses_df <- do.call(rbind, ellipses)
+  
+  grafico_mark_misturas <- ggplot(df_plot, aes(x = Renda_anual, y = Escore_gasto, color = cluster, fill = cluster)) +
+    geom_point(aes(shape = cluster), alpha = 0.7, size = 2) +
+    geom_polygon(data = ellipses_df, aes(x = x, y = y, fill = cluster), linewidth = 0.5, alpha = 0.2) +
+    scale_shape_manual(values = c(16, 17, 15, 3, 12, 8, 18)) +
+    labs(
+      x = "Renda anual",
+      y = "Escore de gasto",
+      title = "",
+      color = "Cluster", fill = "Cluster", shape = "Cluster"
+    ) +
+    theme_minimal(base_size = 13) +
+    theme(
+      legend.position = "right",
+      plot.title = element_text(face = "bold", size = 14)
+    )
+}
+
+# Exibir gráfico final
+grafico_mark_misturas
+
+# Salvar
+ggsave("grafico_mark_misturas.png", plot = grafico_mark_misturas, width = 7, height = 5, dpi = 30)
+```
+  
+# Esmtimativas dos parâmetros
+
+```{r}
+
+melhor_modelo <- Mclust(dados_pad, G = 7, modelNames = "EII")
+
+melhor_modelo$parameters
+
+mod <- melhor_modelo
+
+# 1. Proporções
+pis <- mod$parameters$pro
+
+# 2. Médias
+means <- as.data.frame(mod$parameters$mean)
+means$Variavel <- rownames(means)
+
+# 3. Desvios padrão marginais (modelo EII → todos iguais)
+Sigmas <- mod$parameters$variance$sigma
+
+sds <- data.frame(
+  Cluster_1_DP = sqrt(diag(Sigmas[,,1])),
+  Cluster_2_DP = sqrt(diag(Sigmas[,,2])),
+  Cluster_3_DP = sqrt(diag(Sigmas[,,3])),
+  Cluster_4_DP = sqrt(diag(Sigmas[,,4])),
+  Cluster_5_DP = sqrt(diag(Sigmas[,,5])),
+  Cluster_6_DP = sqrt(diag(Sigmas[,,6])),
+  Cluster_7_DP = sqrt(diag(Sigmas[,,7])),
+  Variavel = rownames(means)
+)
+
+# 4. Junta médias + DP
+parametros <- means %>%
+  left_join(sds, by = "Variavel") %>%
+  relocate(Variavel)
+
+# 5. Organiza formato longo
+parametros_long <- parametros %>%
+  tidyr::pivot_longer(
+    cols = -Variavel,
+    names_to = "Coluna",
+    values_to = "Valor"
+  ) %>%
+  mutate(
+    Cluster = stringr::str_extract(Coluna, "[0-9]"),
+    Tipo = ifelse(grepl("DP", Coluna), "DP", "Media")
+  ) %>%
+  select(Variavel, Cluster, Tipo, Valor)
+
+# 6. Traz de volta para formato de tabela final
+parametros_final <- parametros_long %>%
+  mutate(Cluster = paste0("Cluster_", Cluster)) %>%
+  pivot_wider(
+    names_from = c(Cluster, Tipo),
+    values_from = Valor
+  ) %>%
+  arrange(Variavel)
+
+# 7. Tabela em LaTeX
+tabela_marketing <- parametros_final %>%
+  kable(
+    caption = "Parâmetros estimados pelo modelo de misturas gaussianas (EII, 7 componentes).",
+    format = "latex",
+    booktabs = TRUE,
+    digits = 3
+  ) %>%
+  kable_styling(full_width = FALSE) %>%
+  add_header_above(c(
+    " " = 1,
+    "Cluster 1" = 2,
+    "Cluster 2" = 2,
+    "Cluster 3" = 2,
+    "Cluster 4" = 2,
+    "Cluster 5" = 2,
+    "Cluster 6" = 2,
+    "Cluster 7" = 2
+  ))
+
+tabela_marketing
+
+```
+    
+
+
+
+
+
+
+
+### Critérios internos
+
+
+```{r}
+
+########################################
+### CRITÉRIOS INTERNOS DE VALIDAÇÃO
+########################################
+
+
+
+# Função para calcular Silhueta, Davies-Bouldin e Calinski-Harabasz
+avaliar_clusters <- function(data, clusters) {
+  sil <- mean(silhouette(clusters, dist(data))[, "sil_width"])
+  crit <- intCriteria(as.matrix(data), as.integer(clusters), c("Davies_Bouldin", "Calinski_Harabasz"))
+  return(c(Silhueta = sil, 
+           Davies_Bouldin = crit$davies_bouldin, 
+           Calinski_Harabasz = crit$calinski_harabasz))
+}
+
+# Avaliação para cada método
+res_ward     <- avaliar_clusters(dados_pad, as.numeric(dados$Cluster_Ward))
+res_kmeans   <- avaliar_clusters(dados_pad, kmeans_result$cluster)
+res_misturas <- avaliar_clusters(dados_pad, melhor_modelo$classification)
+
+# Junta resultados em uma tabela
+tabela_res <- rbind(
+  Ward = res_ward,
+  Kmeans = res_kmeans,
+  Misturas = res_misturas
+)
+
+# Visualizar
+print(tabela_res)
+
+########################################
+### Índice de Dunn
+########################################
+
+# Função auxiliar para calcular Dunn
+calc_dunn <- function(data, clusters) {
+  dunn(dist(data), clusters)
+}
+
+# ---- Ward ----
+dunn_ward <- calc_dunn(dados_pad, as.numeric(dados$Cluster_Ward))
+
+# ---- K-means ----
+dunn_kmeans <- calc_dunn(dados_pad, kmeans_result$cluster)
+
+# ---- Misturas ----
+dunn_misturas <- calc_dunn(dados_pad, melhor_modelo$classification)
+
+# Monta tabela final com todos os índices
+tabela_indices <- data.frame(
+  Metodo = c("Ward", "K-means", "Misturas"),
+  Silhueta = c(tabela_res["Ward", "Silhueta"],
+               tabela_res["Kmeans", "Silhueta"],
+               tabela_res["Misturas", "Silhueta"]),
+  Davies_Bouldin = c(tabela_res["Ward", "Davies_Bouldin"],
+                     tabela_res["Kmeans", "Davies_Bouldin"],
+                     tabela_res["Misturas", "Davies_Bouldin"]),
+  Calinski_Harabasz = c(tabela_res["Ward", "Calinski_Harabasz"],
+                        tabela_res["Kmeans", "Calinski_Harabasz"],
+                        tabela_res["Misturas", "Calinski_Harabasz"]),
+  Dunn = c(dunn_ward, dunn_kmeans, dunn_misturas)
+)
+
+# Visualizar tabela final
+print(tabela_indices)
+
+```
+
+
+
+#### Tabela 1 – Estatísticas descritivas por cluster
+
+```{r}
+
+# Estatísticas descritivas médias e desvio padrão por cluster
+estatisticas_clusters <- dados %>%
+  group_by(Cluster_Ward) %>%
+  summarise(
+    Idade_media = mean(Idade, na.rm = TRUE),
+    Idade_sd = sd(Idade, na.rm = TRUE),
+    
+    Renda_media = mean(Renda_anual, na.rm = TRUE),
+    Renda_sd = sd(Renda_anual, na.rm = TRUE),
+    
+    Escore_media = mean(Escore_gasto, na.rm = TRUE),
+    Escore_sd = sd(Escore_gasto, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  rename(Cluster = Cluster_Ward)
+
+# Reformata para exibição
+estatisticas_long <- estatisticas_clusters %>%
+  pivot_longer(cols = -Cluster, names_to = "Variavel", values_to = "Valor") %>%
+  separate(Variavel, into = c("Variavel", "Estatistica"), sep = "_") %>%
+  pivot_wider(names_from = c(Cluster, Estatistica), values_from = Valor) %>%
+  mutate(Variavel = recode(Variavel,
+                           Idade = "Idade",
+                           Renda = "Renda Anual",
+                           Escore = "Escore de Gasto"))
+
+clusters <- sort(unique(estatisticas_clusters$Cluster))
+
+# Criar tabela LaTeX
+tabela1 <- estatisticas_long %>%
+  kable("latex",
+        digits = 1,
+        align = "c",
+        caption = "Estatísticas descritivas dos agrupamentos (média e desvio padrão).") %>%
+  kable_styling(full_width = FALSE, font_size = 12,
+                bootstrap_options = c("striped", "hover", "condensed", "responsive")) %>%
+  add_header_above(c(" " = 1, setNames(rep(2, length(clusters)), paste0("Cluster ", clusters))))
+
+# Salvar arquivo .tex
+writeLines(tabela1, "conclusao_mark_descritiva.tex")
+
+```
+
+
+
+
+# Tabela 2 – Número de clientes e distribuição de gênero por cluster
+
+```{r}
+
+# Número de clientes por cluster e distribuição de gênero
+clientes_genero <- dados %>%
+  group_by(Cluster_Ward, Genero) %>%
+  summarise(Qtd = n(), .groups = "drop") %>%
+  pivot_wider(names_from = Genero, values_from = Qtd, values_fill = 0) %>%
+  rename(Cluster = Cluster_Ward)
+
+clientes_total <- dados %>%
+  group_by(Cluster_Ward) %>%
+  summarise(`Nº de Clientes` = n(), .groups = "drop") %>%
+  rename(Cluster = Cluster_Ward)
+
+# Combina total de clientes e distribuição de gênero
+tabela2_df <- clientes_total %>%
+  left_join(clientes_genero, by = "Cluster")
+
+# Criar tabela HTML
+tabela2 <- tabela2_df %>%
+  kable("html",
+        align = "c",
+        caption = "Número de clientes e distribuição de gênero por cluster.") %>%
+  kable_styling(full_width = FALSE, font_size = 12,
+                bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+
+# Exibir tabela
+tabela2
+
+```
+
+
+
+

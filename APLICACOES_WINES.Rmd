@@ -1,0 +1,1298 @@
+---
+title: "APLICACAO_WINES_ORGANIZADA"
+author: "Arthur Marchito"
+date: "2025-10-22"
+output: html_document
+---
+
+## Conjunto de Dados de Vinhos
+
+Esses dados são resultados de uma análise química de vinhos cultivados na mesma
+região da Itália, conforme descrito por Everitt et al. (2001). A análise incluiu a medição
+de 13 constituintes químicos em três tipos diferentes de vinhos. Este conjunto de dados
+foi doado por Riccardo Leardi e é amplamente utilizado em estudos de classificação e
+agrupamento, tornando-o apropriado para a comparação das técnicas neste estudo.
+
+**Os atributos são (doado por Riccardo Leardi):**
+
+**1.**Álcool  
+**2.**Ácido málico      
+**3.**Cinza   
+**4.**Alcalinidade das cinzas  
+**5.**Magnésio  
+**6.**Fenóis totais  
+**7.**Flavonoides  
+**8.**Fenóis não flavonoides  
+**9.**Proantocianinas  
+**10.**Intensidade da cor  
+**11.**Matiz (Hue)  
+**12.**OD280/OD315 de vinhos diluídos  
+**13.**Prolina   
+  
+# carregamento de pacotes
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+##############################################
+# WINE DATASET
+###############################################
+
+# ------------------------------
+# 1) CARREGAMENTO DE PACOTES
+# ------------------------------
+
+  library(tidyverse)
+  library(tidyr)
+  library(GGally)
+  library(corrplot)
+  library(factoextra)
+  library(gridExtra)
+  library(gt)
+  library(kableExtra)
+  library(rattle)
+  library(reshape2)
+  library(mclust)
+  library(patchwork)
+  library(ggplot2)
+  library(cluster) 
+  library(dendextend)
+  library(ggdendro)
+
+
+
+```
+
+# Análise exploratória e tratamento dos dados
+
+```{r}
+# ------------------------------
+# 2) IMPORTAÇÃO E PREPARAÇÃO DOS DADOS
+# ------------------------------
+
+data(wine)
+dados_raw <- wine
+
+# Rótulos originais
+rotulos_orig <- dados_raw$Type
+
+# Dados padronizados (exceto a variável "Type")
+dados_pad <- scale(dados_raw[,-1]) |> as.data.frame()
+
+# ------------------------------
+# 3) FUNÇÃO DE ESTATÍSTICAS DESCRITIVAS
+# ------------------------------
+
+estatisticas <- function(x) {
+  c(
+    Min = min(x),
+    Q1 = quantile(x, 0.25),
+    Mediana = median(x),
+    Media = mean(x),
+    Q3 = quantile(x, 0.75),
+    Max = max(x)
+  )
+}
+
+# ------------------------------
+# 4) ESTATÍSTICAS – DADOS ORIGINAIS
+# ------------------------------
+
+tabela_estat_orig <- apply(dados_raw[,-1], 2, estatisticas) |>
+  t() |> 
+  as.data.frame() |> 
+  round(2)
+
+
+
+# ------------------------------
+# 5) ESTATÍSTICAS – DADOS PADRONIZADOS
+# ------------------------------
+
+tabela_estat_pad <- apply(dados_pad, 2, estatisticas) |>
+  t() |> 
+  as.data.frame() |> 
+  round(2)
+
+```
+
+## BOXPLOTS
+
+```{r}
+## Variaveis originais
+
+dados_boxplot_or <- dados_raw[,-1] |>
+  gather(Attributes, values, c(1:4,6:12))
+
+
+grafico_boxplot_or <- ggplot(dados_boxplot_or,aes(x = reorder(Attributes, values, FUN = median), y = values)) +
+  geom_boxplot(fill = "#D55E00", color = "black", outlier.color = "black", outlier.size = 1.5) +
+  coord_flip() +
+  labs(
+#    title = "Distribuição dos Componentes Químicos dos Vinhos",
+#    subtitle = "Boxplots após padronização das variáveis",
+#    y = "Valor Padronizado",
+    x = NULL,
+    y = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle = element_text(size = 11, hjust = 0.5),
+    axis.text.y = element_text(face = "bold"),
+    panel.grid.major.y = element_blank()
+  )
+  
+  
+ggsave("grafico_boxplot_or.png",grafico_boxplot_or, width = 9, height = 6, dpi = 300)
+
+## BOxplot da variável Proline e magnesium
+
+dados_boxplot_pro_ma <- dados_raw[,-1] |>
+  gather(Attributes, values, c(5, 13))
+
+grafico_boxplot_pro_ma <- ggplot(
+  dados_boxplot_pro_ma,
+  aes(x = reorder(Attributes, values, FUN = median), y = values)
+) +
+  geom_boxplot(fill = "#D55E00", color = "black",
+               outlier.color = "black", outlier.size = 1.5) +
+  coord_flip() +
+  labs(
+    x = NULL,
+    y = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle = element_text(size = 11, hjust = 0.5),
+    axis.text.y = element_text(face = "bold"),
+    panel.grid.major.y = element_blank()
+  )
+
+ggsave("grafico_boxplot_pro_ma.png",grafico_boxplot_pro_ma, width = 9, height = 6, dpi = 300)
+
+
+
+grafico_lado_a_lado <- grafico_boxplot_or | grafico_boxplot_pro_ma
+
+ggsave("grafico_boxplots_lado_a_lado_wine.png",
+       grafico_lado_a_lado,
+       width = 14, height = 6, dpi = 300)
+
+```
+
+
+
+## HISTOGRAMAS
+
+
+```{r}
+
+##Variaveis reais
+dados_histogramas_or <- dados_raw[,-1] %>%
+  gather(Attributes, value, 1:13) %>%
+  ggplot(aes(x = value)) +
+  geom_histogram(fill = "#D55E00", color = "black", bins = 30) +
+  facet_wrap(~Attributes, scales = "free_x") +
+  labs(
+##   title = "Distribuição dos Componentes Químicos dos Vinhos",
+##    subtitle = "Histogramas das variáveis padronizadas",
+##    x = "Valor Padronizado",
+##    y = "Frequência"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle = element_text(size = 11, hjust = 0.5),
+    strip.text = element_text(face = "bold", size = 10)
+  )
+
+
+
+# Salvando os histogramas das variáveis reais
+ggsave(
+  filename = "histogramas_reais.png",
+  plot = dados_histogramas_or,
+  width = 10,
+  height = 8,
+  dpi = 300
+)
+
+
+
+
+
+## Variaveis padronizadas
+dados_histogramas_p <- dados_p %>%
+  gather(Attributes, value, 1:13) %>%
+  ggplot(aes(x = value)) +
+  geom_histogram(fill = "#D55E00", color = "black", bins = 30) +
+  facet_wrap(~Attributes, scales = "free_x") +
+  labs(
+##   title = "Distribuição dos Componentes Químicos dos Vinhos",
+##    subtitle = "Histogramas das variáveis padronizadas",
+##    x = "Valor Padronizado",
+##    y = "Frequência"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle = element_text(size = 11, hjust = 0.5),
+    strip.text = element_text(face = "bold", size = 10)
+  )
+
+
+
+
+
+# Salvando os histogramas das variáveis padronizadas
+ggsave(
+  filename = "histogramas_padronizadas.png",
+  plot = dados_histogramas_p,
+  width = 10,
+  height = 8,
+  dpi = 300
+)
+
+
+```
+
+
+# Grafico de correlações
+
+
+```{r}
+
+
+# Seleciona apenas as variáveis numéricas
+dados_cor <- dados_raw[ , -1]   # removendo a primeira coluna, como você vem fazendo
+
+# Matriz de correlação
+mat_cor <- cor(dados_cor)
+
+# Reorganiza a matriz usando clustering para deixar o mapa mais "bonito"
+ordem <- hclust(dist(mat_cor))$order
+mat_cor_ord <- mat_cor[ordem, ordem]
+
+# Converte para formato longo
+df_cor <- melt(mat_cor_ord)
+
+# Gera o heatmap
+grafico_cor <- ggplot(df_cor, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = round(value, 2)), size = 3, color = "black") +
+  scale_fill_gradient2(
+    low = "#009E73",
+    mid = "white",
+    high = "#D55E00",
+    midpoint = 0,
+    name = "Correlação"
+  ) +
+  labs(x = NULL, y = NULL) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, face = "bold"),
+    axis.text.y = element_text(face = "bold"),
+    panel.grid = element_blank()
+  )
+
+ggsave(filename = "grafico_cor.png",plot = grafico_cor,width = 10,height = 8,dpi = 300)
+```
+
+
+
+
+
+############################# Escolha de Número de Grupos #########################################
+
+# K-means
+
+```{r}
+# ---------------------------------------------------------
+# Escolha do número de grupos — K-means
+# ---------------------------------------------------------
+
+# ---------------------------------------------------------
+# 1. Método do Cotovelo
+# ---------------------------------------------------------
+
+
+g_Cotovelo_wines <- fviz_nbclust(dados_pad, kmeans, method = "wss", linecolor = "#D55E00") +
+  geom_vline(xintercept = 3, linetype = "dashed", color = "#D55E00", linewidth = 0.6) +
+  labs(
+    title = NULL,   # remove o título padrão!
+    x = "Número de grupos",
+    y = "Soma total dos quadrados intra-clusters"
+  )+
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  )
+
+ggsave("grafico_wine_cotovelo.png", plot = g_Cotovelo_wines, width = 7, height = 5, dpi = 300)
+
+# ---------------------------------------------------------
+# 3. Método da Silhueta
+# ---------------------------------------------------------
+
+
+
+g_silhueta_wines <- fviz_nbclust(dados_pad, kmeans, method = "silhouette",linecolor = "#D55E00") +
+  geom_vline(xintercept = 3, linetype = "dashed", color = "#D55E00", linewidth = 0.6) +
+  labs(
+    title = NULL,
+    x = "Número de grupos",
+    y = "Silhueta média"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  )
+
+ggsave("grafico_wine_silhuetta.png", plot = g_silhueta_wines, width = 7, height = 5, dpi = 300)
+
+
+
+
+```
+
+
+#Misturas 
+
+
+```{R}
+
+
+
+# ---------------------------------------------------------
+# Critério BIC para Misturas Gaussianas (mclust)
+# ---------------------------------------------------------
+
+# ---------------------------------------------------------
+# 1. Ajuste do modelo
+# ---------------------------------------------------------
+
+modelo_wine_misturas <- Mclust(dados_pad)
+# ---------------------------------------------------------
+# 2. Transformar BIC do mclust em data frame
+# ---------------------------------------------------------
+
+bic <- modelo_wine_misturas$BIC
+
+df_bic <- as.data.frame(as.table(bic)) |>
+  rename(
+    G = Var1,
+    modelo = Var2,
+    BIC = Freq
+  ) |> 
+  mutate(
+    G = as.numeric(as.character(G))
+  ) |> 
+  drop_na()
+
+# ---------------------------------------------------------
+# 3. Paleta Okabe–Ito (para daltônicos)
+# ---------------------------------------------------------
+
+cores_14 <- c(
+  "#000000", # black
+  "#E69F00", # orange
+  "#56B4E9", # light blue
+  "#009E73", # bluish green
+  "#F0E442", # yellow
+  "#0072B2", # blue
+  "#D55E00", # vermillion
+  "#CC79A7", # reddish purple
+  "#882255", # wine (Tol)
+  "#44AA99", # bluish green 2 (Tol)
+  "#117733", # forest green (Tol)
+  "#332288", # indigo (Tol)
+  "#AA4499", # pink (Tol)
+  "#DDCC77"  # sand (Tol)
+)
+
+# ---------------------------------------------------------
+# 4. Gráfico final em ggplot2
+# ---------------------------------------------------------
+
+grafico_bic_wine <- ggplot(df_bic, aes(x = G, y = BIC, color = modelo)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  scale_color_manual(values = cores_14) +
+  scale_x_continuous(breaks = 1:10) +   
+  labs(
+    x = "Número de grupos",
+    y = "BIC",
+    color = "Modelo"
+  ) +
+  theme_minimal(base_size = 12)
+
+ggsave("grafico_bic_wine.png",
+       plot = grafico_bic_wine, width = 7, height = 5, dpi = 300)
+
+# ---------------------------------------------------------
+# 3. Sumário do BIC
+# ---------------------------------------------------------
+
+summary(Modelo_mistura_mkt$BIC)
+
+
+
+
+```
+
+
+## WARD
+
+
+```{r}
+###############################################
+# Análise do Nível de Fusão - Método Ward
+###############################################
+
+# Distância euclidiana
+distancia <- dist(dados_pad, method = "euclidean")
+
+# Agrupamento hierárquico pelo método Ward
+hc_ward <- hclust(distancia, method = "ward.D2")
+
+df_fusao <- data.frame(
+  Etapa = 1:length(hc_ward$height),
+  Distancia = hc_ward$height
+)
+
+# Calculando os "saltos" (diferença entre fusões consecutivas)
+df_fusao$Salto <- c(NA, diff(df_fusao$Distancia))
+
+# Maior salto
+maior_salto <- df_fusao[which.max(df_fusao$Salto), ]
+
+
+# -------------------------------------------------------------------------
+# 1) Gráfico destacando o ponto onde K = 3
+# -------------------------------------------------------------------------
+
+
+# Número de observações (para calcular K em cada etapa)
+n_obs <- length(hc_ward$order)
+
+# Ponto correspondente ao K=5
+etapa_n3 <- n_obs - 3
+ponto_n3 <- df_fusao[df_fusao$Etapa == etapa_n3, ]
+
+# Gráfico
+library(ggplot2)
+
+grafico_fusao_ward_wines <-ggplot(df_fusao, aes(x = Etapa, y = Distancia)) +
+                     geom_line(color = "black", linewidth = 1) +
+                    geom_point(color = "#D55E00", size = 2) +
+  
+ 
+  geom_point(data = ponto_n3, aes(x = Etapa, y = Distancia),
+             color = "#009E73", size = 3) +
+  geom_text(data = ponto_n3,
+            aes(x = Etapa, y = Distancia, 
+                label = "K = 3"),
+            vjust = 1.5, color = "black") +
+  
+  labs(
+#    title = "Saltos no Nível de Fusão - Método Ward",
+    x = "Etapas de Agrupamento",
+    y = "Distância (Fusão)"
+  ) +
+  theme_minimal(base_size = 14)
+
+ggsave("grafico_fusao_ward_wines.png", plot =grafico_fusao_ward_wines, width = 7, height = 5, dpi = 300)
+
+
+```
+
+## Nivel de similaridade
+
+```{r}
+
+#########################################################
+# Nível de Similaridade - Método Ward
+#########################################################
+
+
+# Criação do data frame com as distâncias de fusão
+df_similaridade <- data.frame(
+  Etapa = 1:length(hc_ward$height),
+  Distancia = hc_ward$height
+)
+
+# Cálculo da similaridade padronizada segundo Giolo (2017):
+# S_il = 1 - (d_il / max(d_jk))
+max_dist <- max(df_similaridade$Distancia)
+df_similaridade$Similaridade <- 1 - (df_similaridade$Distancia / max_dist)
+
+# Calculando a variação (queda) de similaridade entre etapas consecutivas
+df_similaridade$Delta_Sim <- c(NA, diff(df_similaridade$Similaridade))
+
+# Identificação da maior queda de similaridade
+maior_queda <- df_similaridade[which.min(df_similaridade$Delta_Sim), ]
+
+# --------------------------------------------------------
+# Ponto correspondente a K = 3 clusters
+# Fórmula: Etapa = n_obs - K
+# --------------------------------------------------------
+
+# Ponto correspondente a K = 3 (para marcação no gráfico)
+n_obs <- length(hc_ward$order)
+etapa_n3 <- n_obs - 3
+ponto_n3 <- df_similaridade[df_similaridade$Etapa == etapa_n3, ]
+
+
+#------------------------------------------------------
+# Gráfico do comportamento do nível de similaridade
+#------------------------------------------------------
+
+
+grafico_similaridade_ward_wines <- ggplot(df_similaridade, aes(x = Etapa, y = Similaridade)) +
+  geom_line(color = "black", linewidth = 1) +
+  geom_point(color = "#D55E00", size = 2) +
+  geom_point(data = ponto_n3, aes(x = Etapa, y = Similaridade),
+             color = "#009E73", size = 3) +
+  geom_text(data = ponto_n3,
+            aes(x = Etapa, y = Similaridade, label = "K = 3"),
+            vjust = 1.5, color = "black", size = 3) +
+
+  labs(
+    x = "Etapas de Agrupamento",
+    y = "Nível de Similaridade Padronizado"
+  ) +
+  theme_minimal(base_size = 14)
+
+ggsave("grafico_similaridade_ward_wines.png", plot =grafico_similaridade_ward_wines, width = 7, height = 5, dpi = 300)
+
+
+
+```
+
+## Salvando lado a lado
+
+```{r}
+grafico_fusao_similaridade_wine <- grafico_fusao_ward_wines + grafico_similaridade_ward_wines +
+  plot_layout(ncol = 2) +
+  plot_annotation(
+    tag_levels = "a",   # <-- adiciona (a), (b), (c) automaticamente
+    tag_prefix = "(",   # deixa como (a)
+    tag_suffix = ")"    # fecha )
+  )
+
+ggsave("grafico_fusao_similaridade_wine.png",
+       plot = grafico_fusao_similaridade_wine,
+       width = 12, height = 5, dpi = 300)
+
+
+```
+
+
+
+
+################################# Métodos de Agrupamento #########################################
+
+
+## Ward
+
+```{r}
+########################################
+### DENDROGRAMA COM GGDENDRO (Ward)
+########################################
+set.seed(123)
+# Distância euclidiana
+distancia <- dist(dados_pad, method = "euclidean")
+
+# Agrupamento hierárquico pelo método Ward
+hc_ward <- hclust(distancia, method = "ward.D2")
+
+# Dendrograma com outlier
+gg_hc <- as.dendrogram(hc_ward)
+gg_dendo <- dendro_data(gg_hc, type = "rectangle")
+labels_df <- gg_dendo$labels
+labels_df$label <- as.character(labels_df$label)
+
+# Altura de corte (obtida visualmente ou por clusters)
+altura_corte_3 <- 15 # ajuste se necessário
+
+# Plot melhorado
+
+grafico_dendograma_ward <- ggplot(segment(gg_dendo)) +
+  geom_segment(aes(x = x, y = y, xend = xend, yend = yend), color = "#D55E00") +
+  geom_hline(yintercept = altura_corte_3, linetype = "dashed", color = "black", size = 1) +
+  #geom_text(data = labels_df, aes(x = x, y = y - 1, label = label),
+           # angle = 90, hjust = 1, size = 2.2) +
+  labs(
+    #title = "Dendrograma - Método de Ward",
+    #subtitle = "Dados padronizados",
+    x = "Observações",
+    y = "Distância de fusão"
+  ) +
+  theme_minimal(base_size = 13) 
+
+ggsave("grafico_dendograma_ward_wines.png", plot = grafico_dendograma_ward, width = 10, height = 6, dpi = 300, bg = "white")
+
+# Identificando 3 grupos a partir do dendrograma
+grupos <- cutree(hc_ward, k = 3)
+
+
+```
+
+## Matriz de confusão rótulos originais x ward
+
+```{r}
+
+grupos_ward <- cutree(hc_ward, k = 3)
+
+
+# Tabela original
+tabela_comparacao <- table(rotulos_orig,grupos_ward)
+tabela_comparacao_df <- as.data.frame.matrix(tabela_comparacao)
+tabela_comparacao_df$Total <- rowSums(tabela_comparacao_df)
+tabela_comparacao_df <- rbind(tabela_comparacao_df, Total = colSums(tabela_comparacao_df))
+colnames(tabela_comparacao_df) <- c("Cluster 1", "Cluster 2", "Cluster 3", "Total")
+rownames(tabela_comparacao_df) <- c("Classe 1", "Classe 2", "Classe 3", "Total")
+
+tabela_latex_ward <- kbl(
+  tabela_comparacao_df,
+  format = "latex",
+  booktabs = TRUE,
+  caption = "Matriz de confusão entre os grupos obtidos pelo método Ward e os rótulos originais."
+) %>%
+  add_header_above(c("Rótulos Originais" = 1, "Método Ward" = 4)) %>%
+  kable_styling(latex_options = c("hold_position", "scale_down"))
+
+# Exportar
+cat(tabela_latex_ward, file = "matriz_confusao_ward_1.tex")
+
+
+```
+
+
+
+
+
+
+
+
+
+
+## K-means
+
+
+```{r}
+
+set.seed(231)
+kmeans_result <- kmeans(dados_pad, centers = 3, nstart = 25)
+grupos_kmeans <- kmeans_result$cluster
+
+
+grafico_wine_kmeans <- fviz_cluster(
+  object = kmeans_result,
+  data = dados_pad,
+  geom = "point",
+  ellipse.type = "euclid", 
+  ellipse.linewidth = 0,  
+  ellipse.alpha = 0.2,
+  ellipse.color = NA,     
+  repel = TRUE,
+  labelsize = 0,
+  ggtheme = theme_minimal(base_size = 14)
+) + 
+  labs(
+    title = NULL, 
+    subtitle = NULL,
+   # x = "Componente Principal 1",
+  #  y = "Componente Principal 2"
+  ) +
+  theme(
+    axis.title.x = element_text(size = 12),
+    axis.title.y = element_text(size = 12)
+  ) +
+  scale_shape_manual(
+    values = c(16, 15, 17)  # 16 = bolinha, 17 = triângulo, 15 = quadrado
+  )
+
+# Exibe o gráfico
+grafico_wine_kmeans
+
+ggsave("grafico_wine_kmeans.png", plot =grafico_wine_kmeans, width = 7, height = 5, dpi = 300)
+
+
+
+# Criando a tabela de contingência com os dados dos grupos
+tabela_comparacao <- table(rotulos_orig,grupos_kmeans)
+
+```
+
+### Grafico 3D
+
+```{r}
+
+library(plotly)
+
+
+# Extrair % variância explicada
+var_exp <- round(100 * summary(pca_result)$importance[2, 1:3], 1)
+
+label_x <- paste0("Dim 1 (", var_exp[1], "%)")
+label_y <- paste0("Dim 2 (", var_exp[2], "%)")
+label_z <- paste0("Dim 3 (", var_exp[3], "%)")
+
+# Data frame com as 3 componentes
+pca_scores <- as.data.frame(pca_result$x[, 1:3])
+pca_scores$cluster <- as.factor(grupos_kmeans)
+
+# Cores que estavam no gráfico 2D
+cores_2d <- c(
+  "1" = "#F8766D",  # vermelho rosado
+  "2" = "#7CAE00",  # verde
+  "3" = "#00BFC4"   # azul turquesa
+)
+
+# Formas iguais ao plot 2D
+# (circle, square, triangle-up)
+shapes_2d <- c("1" = "circle", "2" = "square", "3" = "triangle-up")
+
+fig <- plot_ly(
+  data = pca_scores,
+  x = ~PC1,
+  y = ~PC2,
+  z = ~PC3,
+  color = ~cluster,
+  colors = cores_2d,
+  symbol = ~cluster,
+  symbols = shapes_2d,
+  marker = list(size = 6)
+) %>%
+  add_markers() %>%
+  layout(
+    scene = list(
+      xaxis = list(title = label_x),
+      yaxis = list(title = label_y),
+      zaxis = list(title = label_z)
+    ),
+    legend = list(title = list(text = "Cluster"))
+  )
+
+fig
+
+
+library(htmlwidgets)
+library(webshot)
+saveWidget(fig, "grafico3d.html")
+```
+## Matriz de confusão rótulos originais x kmeans
+
+```{r}
+
+
+# Tabela original
+tabela_comparacao <- table(rotulos_orig,grupos_kmeans)
+tabela_comparacao_df <- as.data.frame.matrix(tabela_comparacao)
+tabela_comparacao_df$Total <- rowSums(tabela_comparacao_df)
+tabela_comparacao_df <- rbind(tabela_comparacao_df, Total = colSums(tabela_comparacao_df))
+colnames(tabela_comparacao_df) <- c("Cluster 1", "Cluster 2", "Cluster 3", "Total")
+rownames(tabela_comparacao_df) <- c("Classe 1", "Classe 2", "Classe 3", "Total")
+
+tabela_latex_kmeans <- kbl(
+  tabela_comparacao_df,
+  format = "latex",
+  booktabs = TRUE,
+  caption = "Matriz de confusão entre os grupos obtidos pelo método kmeans e os rótulos originais."
+) %>%
+  add_header_above(c("Rótulos Originais" = 1, "Método k-means" = 4)) %>%
+  kable_styling(latex_options = c("hold_position", "scale_down"))
+
+# Exportar
+cat(tabela_latex_kmeans, file = "matriz_confusao_kmeans_1.tex")
+
+
+```
+
+
+
+
+
+
+
+
+
+
+### Misturas finitas de normais
+
+
+
+```{r}
+set.seed(231)
+# Ajuste do melhor modelo (VVE, 3 componentes)
+melhor_modelo_wine <- Mclust(dados_pad, G = 3, modelNames = "VVE")
+grupo_misturas <- melhor_modelo_wine$classification
+
+# PCA para reduzir a duas dimensões (visualização)
+pca <- prcomp(dados_pad, scale. = TRUE)
+
+# Data frame com as duas primeiras componentes
+df_plot <- data.frame(
+  PC1 = pca$x[, 1],
+  PC2 = pca$x[, 2],
+  cluster = as.factor(melhor_modelo_wine$classification)
+)
+
+# Médias projetadas no espaço das PCs
+means_proj <- predict(pca, t(melhor_modelo_wine$parameters$mean))
+
+# Matriz de rotação 13x2 (13 variáveis originais, 2 componentes principais)
+rotacao_ajustada <- pca$rotation[, 1:2]
+
+# Criação das elipses projetadas no espaço PCA
+ellipses_list <- lapply(1:melhor_modelo_wine$G, function(k) {
+  Sigma_k <- melhor_modelo_wine$parameters$variance$sigma[, , k]
+  
+  # Projeta a covariância 13x13 no espaço das 2 primeiras PCs
+  Sigma_proj <- t(rotacao_ajustada) %*% Sigma_k %*% rotacao_ajustada
+  
+  # Gera a elipse no espaço projetado
+  e <- as.data.frame(ellipse(Sigma_proj, centre = means_proj[k, 1:2], level = 0.95))
+  colnames(e)[1:2] <- c("x", "y")  # garante nomes corretos
+  e$cluster <- as.factor(k)
+  e
+})
+
+# Une todas as elipses em um único data frame
+ellipses_df <- do.call(rbind, ellipses_list)
+
+# 🔹 Adiciona as médias projetadas como data frame
+means_df <- data.frame(
+  x = means_proj[, 1],
+  y = means_proj[, 2],
+  cluster = as.factor(1:melhor_modelo_wine$G)
+)
+
+
+var_exp <- 100 * summary(pca)$importance[2, 1:2]
+label_PC1 <- paste0("Dim1 (", round(var_exp[1], 1), "%)")
+label_PC2 <- paste0("Dim2 (", round(var_exp[2], 1), "%)")
+
+
+
+grafico_misturas_wine <- ggplot(df_plot, aes(x = PC1, y = PC2, color = cluster, fill = cluster)) +
+  # Pontos com formas diferentes por cluster
+  geom_point(aes(shape = cluster), alpha = 1, size = 2) +
+  
+  # Elipses com preenchimento e bordas
+  geom_polygon(
+    data = ellipses_df,
+    aes(x = x, y = y, color = cluster, fill = cluster),
+    linewidth = 0.4,
+    alpha = 0.2
+  ) +
+  
+  # Escala manual de formas
+  scale_shape_manual(values = c(16, 15, 17)) +  # bolinha, quadrado e triângulo
+   #(Opcional) marcar as médias dos clusters
+   #geom_point(data = means_df, aes(x = x, y = y),
+   #            color = "black", shape = 4, size = 3, stroke = 1.2) +
+  
+  
+  labs(
+  #  title = "Agrupamento obtido pelo modelo de Misturas Gaussianas (VVE, 3 componentes)",
+  #  subtitle = "Projeção no espaço das duas primeiras componentes principais (PCA)",
+    x = label_PC1,
+    y = label_PC2,
+    color = "Cluster",
+    fill = "Cluster",
+    shape = "Cluster"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(face = "bold", size = 14)
+  )
+
+# Exibir o gráfico
+print(grafico_misturas_wine)
+
+
+
+ggsave("grafico_misturas_wine.png", plot =grafico_misturas_wine, width = 7, height = 5, dpi = 300)
+
+
+
+```
+
+## Gráfico 3D
+
+```{r}
+
+
+# ---- Preparar dados ----
+pca_result <- prcomp(dados_pad, scale. = TRUE)
+pca_scores_3d <- as.data.frame(pca$x[, 1:3])
+pca_scores_3d$cluster <- as.factor(melhor_modelo_wine$classification)
+
+# Variância explicada para rótulos dos eixos
+var_exp3 <- 100 * summary(pca)$importance[2, 1:3]
+
+label_x3 <- paste0("Dim 1 (", round(var_exp3[1], 1), "%)")
+label_y3 <- paste0("Dim 2 (", round(var_exp3[2], 1), "%)")
+label_z3 <- paste0("Dim 3 (", round(var_exp3[3], 1), "%)")
+
+# Cores e formas iguais ao gráfico 2D
+cores_mist <- c("1" = "#F8766D", "2" = "#7CAE00", "3" = "#00BFC4")
+shapes_mist <- c("1" = "circle", "2" = "square", "3" = "triangle-up")
+
+# ---- Gráfico 3D ----
+fig_mist_3d <- plot_ly(
+  data = pca_scores_3d,
+  x = ~PC1,
+  y = ~PC2,
+  z = ~PC3,
+  color = ~cluster,
+  colors = cores_mist,
+  symbol = ~cluster,
+  symbols = shapes_mist,
+  marker = list(size = 6)
+) %>%
+  add_markers() %>%
+  layout(
+    scene = list(
+      xaxis = list(title = label_x3),
+      yaxis = list(title = label_y3),
+      zaxis = list(title = label_z3)
+    ),
+    legend = list(title = list(text = "Cluster"))
+  )
+
+fig_mist_3d
+
+
+saveWidget(fig_mist_3d, "grafico3d_misturas.html")
+```
+
+
+
+
+## Matriz de confusão rótulos originais x misturas
+
+```{r}
+
+
+# Tabela original
+tabela_comparacao <- table(rotulos_orig,grupo_misturas)
+tabela_comparacao_df <- as.data.frame.matrix(tabela_comparacao)
+tabela_comparacao_df$Total <- rowSums(tabela_comparacao_df)
+tabela_comparacao_df <- rbind(tabela_comparacao_df, Total = colSums(tabela_comparacao_df))
+colnames(tabela_comparacao_df) <- c("Cluster 1", "Cluster 2", "Cluster 3", "Total")
+rownames(tabela_comparacao_df) <- c("Classe 1", "Classe 2", "Classe 3", "Total")
+
+tabela_latex_misturas <- kbl(
+  tabela_comparacao_df,
+  format = "latex",
+  booktabs = TRUE,
+  caption = "Matriz de confusão entre os grupos obtidos pelo método de misturas e os rótulos originais."
+) %>%
+  add_header_above(c("Rótulos Originais" = 1, "Método Misturas" = 4)) %>%
+  kable_styling(latex_options = c("hold_position", "scale_down"))
+
+# Exportar
+cat(tabela_latex_misturas, file = "matriz_confusao_misturas_1.tex")
+
+
+```
+
+
+## Estimativas do modelo de misturas
+
+```{r}
+mod <- melhor_modelo_wine
+
+#parametros do modelo
+mod$parameters
+
+# Proporções π_k
+pis <- mod$parameters$pro
+
+# Médias μ_kj (cada coluna = cluster)
+means <- as.data.frame(mod$parameters$mean)
+means$Variavel <- rownames(means)
+
+# Covariâncias Σ_k (extraindo desvios padrão = sqrt(diagonal))
+Sigmas <- mod$parameters$variance$sigma
+
+sds <- data.frame(
+  sd1 = sqrt(diag(Sigmas[,,1])),
+  sd2 = sqrt(diag(Sigmas[,,2])),
+  sd3 = sqrt(diag(Sigmas[,,3])),
+  Variavel = rownames(means)
+)
+
+# Junta médias + desvios padrão
+parametros <- means %>%
+  left_join(sds, by = "Variavel") %>%
+  relocate(Variavel)
+
+# Renomeia variáveis iguais à sua tabela anterior
+parametros$Variavel <- recode(parametros$Variavel,
+  Alcohol = "Álcool",
+  Malic = "Ácido málico",
+  Ash = "Cinza",
+  Alcalinity = "Alcalinidade",
+  Magnesium = "Magnésio",
+  Flavanoids = "Fenóis totais",
+  Nonflavanoids = "Não flavonoides",
+  Proanthocyanins = "Proantocianinas",
+  Color = "Intensidade",
+  Hue = "Matiz (Hue)",
+  Dilution = "OD280/OD315",
+  Proline = "Prolina"
+)
+
+
+
+# -------- FORMATO LONGO --------
+parametros_long <- parametros %>%
+  tidyr::pivot_longer(
+    cols = -Variavel,
+    names_to = "Coluna",
+    values_to = "Valor"
+  ) %>%
+  dplyr::mutate(
+    Cluster = stringr::str_extract(Coluna, "[0-9]"),
+    Tipo = ifelse(grepl("^sd", Coluna), "DP", "Media")
+  ) %>%
+  dplyr::select(Variavel, Cluster, Tipo, Valor)
+
+# -------- FORMATO LARGO (MÉDIA E DP JUNTOS) --------
+parametros_final <- parametros_long %>%
+  mutate(Cluster = paste0("Cluster_", Cluster)) %>%
+  pivot_wider(
+    names_from = c(Cluster, Tipo),
+    values_from = Valor
+  ) %>%
+  # Ordena as colunas na sequência desejada
+  relocate(
+    Cluster_1_Media, Cluster_1_DP,
+    Cluster_2_Media, Cluster_2_DP,
+    Cluster_3_Media, Cluster_3_DP,
+    .after = Variavel
+  ) %>%
+  arrange(Variavel)
+
+# ---- TABELA EM LATEX ----
+tabela_parametros <- parametros_final %>%
+  kable(
+    col.names = c(
+      "Variáveis",
+      "Média", "Desvio Padrão",
+      "Média", "Desvio Padrão",
+      "Média", "Desvio Padrão"
+    ),
+    align = "c",
+    caption = "Parâmetros estimados pelo modelo de misturas gaussianas (VVE, 3 componentes).",
+    format = "latex",
+    booktabs = TRUE,
+    digits = 3
+  ) %>%
+  kable_styling(
+    full_width = FALSE,
+    font_size = 10,
+    position = "center",
+    latex_options = "hold_position"
+  ) %>%
+  add_header_above(c(
+    " " = 1,
+    "Cluster 1" = 2,
+    "Cluster 2" = 2,
+    "Cluster 3" = 2
+  ))
+
+tabela_parametros
+
+
+```
+
+
+
+
+
+
+### criterios externos
+
+```{r}
+library(mclust)   # para adjustedRandIndex
+library(clue)     # para acurácia via hungarian algorithm
+
+# Função para calcular acurácia considerando permutação ótima dos clusters
+calcular_acuracia <- function(rótulos_verdadeiros, rótulos_preditos) {
+  tab <- table(rótulos_verdadeiros, rótulos_preditos)
+  assignment <- clue::solve_LSAP(tab, maximum = TRUE)
+  acertos <- sum(tab[cbind(1:nrow(tab), assignment)])
+  acuracia <- acertos / length(rótulos_verdadeiros)
+  return(acuracia)
+}
+
+# Rótulos verdadeiros
+rótulos <- rotulos_originais_padr  # Substitua pelo seu vetor real
+
+# Rótulos dos métodos
+ward_clusters     <- dados_norm_wine_ward$grupo
+kmeans_clusters   <- wines_K3$cluster
+misturas_clusters <- gmm_wine$classification
+
+# Índice de Rand Ajustado
+ari_ward     <- adjustedRandIndex(rótulos, ward_clusters)
+ari_kmeans   <- adjustedRandIndex(rótulos, kmeans_clusters)
+ari_misturas <- adjustedRandIndex(rótulos, misturas_clusters)
+
+# Acurácia
+acc_ward     <- calcular_acuracia(rótulos, ward_clusters)
+acc_kmeans   <- calcular_acuracia(rótulos, kmeans_clusters)
+acc_misturas <- calcular_acuracia(rótulos, misturas_clusters)
+
+tabela_resultados <- data.frame(
+  Método = c("Ward", "K-means", "Misturas"),
+  ARI = round(c(ari_ward, ari_kmeans, ari_misturas), 2),
+  Acurácia = round(c(acc_ward, acc_kmeans, acc_misturas), 2)
+)
+
+
+tabela_latex <- kbl(tabela_resultados,
+                    format = "latex",
+                    booktabs = TRUE,
+                    caption = "Comparação dos métodos de agrupamento com base em critérios externos") %>%
+  kable_styling(latex_options = c("HOLD_position", "scale_down"), position = "center")
+
+
+# Salvando em .tex
+cat(tabela_latex, file = "criterios_externos.tex")
+
+
+```
+
+
+
+### interpretação
+
+
+```{r}
+dados_wine$grupo_misturas <- melhor_modelo_wine$classification
+
+dados_wine_mistura <- dados_wine[,-1]
+
+# Função para calcular estatísticas descritivas
+estatisticas_descritivas <- function(df) {
+  df %>%
+    summarise(
+      Alcohol_media = mean(Alcohol, na.rm = TRUE),
+      Alcohol_sd = sd(Alcohol, na.rm = TRUE),
+      
+      Malic_media = mean(Malic, na.rm = TRUE),
+      Malic_sd = sd(Malic, na.rm = TRUE),
+      
+      Ash_media = mean(Ash, na.rm = TRUE),
+      Ash_sd = sd(Ash, na.rm = TRUE),
+      
+      Alcalinity_media = mean(Alcalinity, na.rm = TRUE),
+      Alcalinity_sd = sd(Alcalinity, na.rm = TRUE),
+      
+      Magnesium_media = mean(Magnesium, na.rm = TRUE),
+      Magnesium_sd = sd(Magnesium, na.rm = TRUE),
+      
+      Flavanoids_media = mean(Flavanoids, na.rm = TRUE),
+      Flavanoids_sd = sd(Flavanoids, na.rm = TRUE),
+      
+      Nonflavanoids_media = mean(Nonflavanoids, na.rm = TRUE),
+      Nonflavanoids_sd = sd(Nonflavanoids, na.rm = TRUE),
+      
+      Proanthocyanins_media = mean(Proanthocyanins, na.rm = TRUE),
+      Proanthocyanins_sd = sd(Proanthocyanins, na.rm = TRUE),
+      
+      Color_media = mean(Color, na.rm = TRUE),
+      Color_sd = sd(Color, na.rm = TRUE),
+      
+      Hue_media = mean(Hue, na.rm = TRUE),
+      Hue_sd = sd(Hue, na.rm = TRUE),
+      
+      Dilution_media = mean(Dilution, na.rm = TRUE),
+      Dilution_sd = sd(Dilution, na.rm = TRUE),
+      
+      Proline_media = mean(Proline, na.rm = TRUE),
+      Proline_sd = sd(Proline, na.rm = TRUE)
+    )
+}
+
+# Calculando as estatísticas descritivas para cada grupo
+estatisticas_grupo_1 <- dados_wine_mistura %>% filter(grupo_misturas == 1) %>% estatisticas_descritivas() %>% mutate(Grupo = "Grupo 1")
+estatisticas_grupo_2 <- dados_wine_mistura %>% filter(grupo_misturas == 2) %>% estatisticas_descritivas() %>% mutate(Grupo = "Grupo 2")
+estatisticas_grupo_3 <- dados_wine_mistura %>% filter(grupo_misturas == 3) %>% estatisticas_descritivas() %>% mutate(Grupo = "Grupo 3")
+
+# Unindo as estatísticas em uma tabela
+estatisticas <- bind_rows(estatisticas_grupo_1, estatisticas_grupo_2, estatisticas_grupo_3)
+
+# Transformando os dados para o formato desejado e renomeando as variáveis
+estatisticas_long <- estatisticas %>%
+  pivot_longer(cols = -Grupo, names_to = "Variavel", values_to = "Valor") %>%
+  separate(Variavel, into = c("Variavel", "Estatistica"), sep = "_", extra = "merge") %>%
+  pivot_wider(names_from = c(Grupo, Estatistica), values_from = Valor) %>%
+  mutate(Variavel = recode(Variavel,
+                           Alcohol = "Álcool",
+                           Malic = "Ácido málico",
+                           Ash = "Cinza",
+                           Alcalinity = "Alcalinidade",
+                           Magnesium = "Magnésio",
+                           Flavanoids = "Fenóis totais",
+                           Nonflavanoids = "Não flavonoides",
+                           Proanthocyanins = "Proantocianinas",
+                           Color = "Intensidade",
+                           Hue = "Matiz (Hue)",
+                           Dilution = "OD280/OD315",
+                           Proline = "Prolina "))
+
+
+tabela <- estatisticas_long %>%
+  kable(
+    col.names = c("Variáveis", "Média", "Desvio Padrão",
+                  "Média", "Desvio Padrão", "Média", "Desvio Padrão"),
+    align = "c",
+    caption = "Análise descritiva dos agrupamentos encontrados pelo método de misturas finitas",
+    format = "latex",
+    booktabs = TRUE
+  ) %>%
+  kable_styling(
+    full_width = FALSE,
+    font_size = 10,
+    position = "center",
+    latex_options = "hold_position"
+  ) %>%
+  add_header_above(c(" " = 1, "Cluster 1" = 2, "Cluster 2" = 2, "Cluster 3" = 2)) %>%
+  column_spec(1:7, width = "2cm")
+
+
+writeLines(tabela, "tabela_misturas_descritiva.tex")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

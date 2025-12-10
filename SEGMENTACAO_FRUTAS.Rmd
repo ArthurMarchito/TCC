@@ -1,0 +1,298 @@
+---
+title: "Segmentação Frutas"
+author: "Arthur Marchito"
+date: "2025-09-02"
+output: html_document
+---
+
+
+
+
+
+```{r}
+library(jpeg)       # para ler JPG
+library(png)        # caso seja PNG
+library(mclust)     # Misturas Gaussianas
+library(grid)       # exibir imagem como raster
+library(gridExtra)  # organizar imagens
+library(stats)
+library(jpeg)
+library(mclust)
+library(grid)
+library(gridExtra)
+library(stats)
+library(tictoc)
+
+```
+
+
+
+######K-means
+
+```{r}
+
+
+tempos <- list()
+
+tic("K-means")
+
+
+
+img_path <- "frutas.jpg"
+img <- readJPEG(img_path)
+
+# Converter em matriz de pixels (R, G, B)
+img_matrix <- matrix(as.vector(img), ncol = 3)
+
+# === 2. Função para aplicar K-means e reconstruir imagem ===
+segmentar_kmeans <- function(k) {
+  km <- kmeans(img_matrix, centers = k, nstart = 5)
+  clustered <- km$centers[km$cluster, ]
+  img_segmented <- array(clustered, dim = dim(img))
+  # Cria gráfico com título
+  arrangeGrob(rasterGrob(img_segmented),
+              top = paste("k =", k))
+}
+
+# === 3. Gerar lista de imagens para diferentes k ===
+plots <- lapply(2:9, segmentar_kmeans)
+
+# Função auxiliar para converter matriz RGB em grob de imagem
+as_grob_img <- function(arr) {
+  rasterGrob(arr, interpolate = TRUE)
+}
+
+
+p_orig <- arrangeGrob(as_grob_img(img), top = "Original")
+
+# === 4. Exibir em grid ===
+grafico_seg_kmeans <- grid.arrange(grobs =  c(list(p_orig), plots), ncol = 3,
+             top = "")
+
+tempos$kmeans <- toc(log = TRUE)
+# Salva em arquivo com ggsave
+ggsave("grafico_seg_kmeans.png", grafico_seg_kmeans,
+       width = 12, height = 9, dpi = 300)
+
+
+
+
+```
+######## Misturas
+
+```{r}
+
+
+# === 1) Ler imagem JPG ===
+img_path <- "frutas.jpg"            
+img <- readJPEG(img_path)
+
+
+
+
+
+
+
+h <- dim(img)[1]
+w <- dim(img)[2]
+
+tic("misturas")
+
+img_matrix <- matrix(as.vector(img), ncol = 3)
+
+img_df <- data.frame(
+  r = img_matrix[,1],
+  g = img_matrix[,2],
+  b = img_matrix[,3]
+)
+
+# === 2) Função auxiliar: reconstruir imagem a partir de centers e labels ===
+# Espera: centers = matriz k×3 com colunas r,g,b; labels = vetor de tamanho h*w com valores 1..k
+reconstruir <- function(df_rgb, centers, labels, h, w) {
+  out <- df_rgb
+  out$r <- centers[labels, 1]
+  out$g <- centers[labels, 2]
+  out$b <- centers[labels, 3]
+  array(c(out$r, out$g, out$b), dim = c(h, w, 3))
+}
+
+# Helper simples para virar grob
+as_grob_img <- function(arr) rasterGrob(arr)
+
+# ---------------------------
+# === 3) Misturas Gaussianas (GMM) para vários k ===
+# ---------------------------
+ks <- 2:9
+
+plots_gmm <- lapply(ks, function(k) {
+  # Rodar GMM com k componentes
+  gmm <- Mclust(img_matrix, G = k, verbose = FALSE, modelNames = "VEV")
+
+  # Rótulos 1..k para cada pixel
+  labs_gmm <- gmm$classification
+
+  # Médias dos clusters: em mclust é (p × k) -> transpomos para (k × p)
+  means_gmm <- t(gmm$parameters$mean)
+  # Garantir que tem colunas nomeadas r,g,b neste ordenamento
+  colnames(means_gmm) <- c("r", "g", "b")
+
+  # Reconstruir imagem usando as médias de cada cluster
+  seg_gmm <- reconstruir(img_df, means_gmm, labs_gmm, h, w)
+
+  arrangeGrob(as_grob_img(seg_gmm), top = paste("k =", k))
+})
+p_orig <- arrangeGrob(as_grob_img(img), top = "Original")
+
+grafico_seg_misturas <- grid.arrange(grobs = c(list(p_orig), plots_gmm), ncol = 3,
+             top = "")
+
+tempos$misturas <- toc(log = TRUE)
+
+
+# Salva em arquivo com ggsave
+ggsave("grafico_seg_misturas.png", grafico_seg_misturas,
+       width = 12, height = 9, dpi = 300)
+
+
+# Melhor BIC 
+
+# Ajustar o modelo GMM automaticamente
+gmm <- Mclust(img_matrix)
+
+# Mostrar o melhor modelo encontrado
+gmm$G        # número ótimo de componentes
+gmm$modelName  # tipo de covariância escolhido
+
+# Gerar o gráfico de BIC
+plot(gmm, what = "BIC")
+
+
+```
+
+
+######## Ward
+
+
+```{r}
+library(jpeg)
+library(grid)
+library(gridExtra)
+library(stats)
+
+tic("ward")
+# === 1) Ler imagem ===
+img_path <- "frutas.jpg"
+img <- readJPEG(img_path)
+h <- dim(img)[1]; w <- dim(img)[2]
+
+# Dados RGB
+img_df <- data.frame(
+  r = as.vector(img[,,1]),
+  g = as.vector(img[,,2]),
+  b = as.vector(img[,,3])
+)
+X <- as.matrix(img_df)  # n x 3
+
+# === Helpers ===
+reconstruir <- function(labels, centers, h, w) {
+  stopifnot(length(labels) == h*w)
+  M <- matrix(centers[labels, ], ncol = 3)
+  array(M, dim = c(h, w, 3))
+}
+nn_assign <- function(X, C) {
+  # atribui cada linha de X ao centróide mais próximo em C
+  d2 <- sapply(1:nrow(C), function(j) rowSums((X - matrix(C[j,], nrow(X), 3, byrow=TRUE))^2))
+  max.col(-d2)
+}
+as_grob_img <- function(arr) rasterGrob(as.raster(arr), interpolate = FALSE)
+
+# === 2) Ward na AMOSTRA (para caber na memória) ===
+set.seed(123)
+n_samp <- min(5000, nrow(X))  # ajuste se der memória
+ids <- sample(seq_len(nrow(X)), n_samp)
+S <- X[ids, ]                  # amostra n_samp x 3
+
+D <- dist(S, method = "euclidean")
+hc <- hclust(D, method = "ward.D2")
+
+# === 3) Gerar segmentações para vários k ===
+ks <- 2:9
+plots_ward <- lapply(ks, function(k) {
+  labs_s <- cutree(hc, k = k)  # rótulos só da amostra
+
+  # centróides na amostra
+  centers <- aggregate(S, by = list(cluster = labs_s), FUN = mean)
+  centers <- as.matrix(centers[, c("r","g","b")])  # k x 3
+
+  # classificar TODOS os pixels pelo centróide (NN)
+  labs_full <- nn_assign(X, centers)
+
+  # reconstruir imagem completa
+  seg <- reconstruir(labs_full, centers, h, w)
+  arrangeGrob(as_grob_img(seg), top = paste("Ward (k =", k, ")"))
+})
+
+# (opcional) incluir a original na grade
+p_orig <- arrangeGrob(as_grob_img(img), top = "Original")
+
+grid.arrange(grobs = c(list(p_orig), plots_ward),
+             ncol = 3,
+             top = "Segmentação por Ward para vários k")
+
+
+grafico_seg_ward <- arrangeGrob(grobs = c(list(p_orig),plots_ward), ncol = 3,
+                          top = " ")
+tempos$ward <- toc(log = TRUE)
+# Salva em arquivo com ggsave
+ggsave("grafico_seg_ward.png", grafico_seg_ward,
+       width = 12, height = 9, dpi = 300)
+
+```
+
+
+#### Imagem feita pelo proprio autor #######
+
+```{r}
+
+######K-means
+
+
+
+
+img_path <- "borboleta.jpg"
+img <- readJPEG(img_path)
+
+# === 2. Converter em matriz RGB ===
+img_matrix <- matrix(as.vector(img), ncol = 3)
+
+# === 3. Aplicar K-means com um valor fixo de k (ex: 4) ===
+set.seed(123)
+k <- 7
+km <- kmeans(img_matrix, centers = k, nstart = 5)
+
+# === 4. Reconstruir imagem segmentada ===
+clustered <- km$centers[km$cluster, ]
+img_segmented <- array(clustered, dim = dim(img))
+
+# === 5. Exibir imagens lado a lado ===
+p1 <- rasterGrob(img, interpolate = TRUE)
+p2 <- rasterGrob(img_segmented, interpolate = TRUE)
+
+grafico_seg_exemplo <- grid.arrange(
+  p1, p2, ncol = 2
+##  top = textGrob("Imagem Original (esq.) e Segmentada (dir.)", gp = gpar(fontsize = 14, fontface = "bold"))
+)
+
+# === 6. Salvar imagem ===
+ggsave("segmentacao_exemplo.png", grafico_seg_exemplo,
+       width = 8, height = 4, dpi = 300)
+
+```
+
+
+
+
+
+
+
+
